@@ -1,0 +1,442 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Neon Tetris | Arcade Game</title>
+
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{
+  min-height:100vh;background:radial-gradient(circle at top,#172554,#070b18 65%);
+  color:#fff;font-family:Arial,sans-serif;display:flex;
+  flex-direction:column;align-items:center;padding:22px 12px;
+}
+header{text-align:center;margin-bottom:20px}
+header h1{font-size:36px;letter-spacing:5px;color:#67e8f9;text-shadow:0 0 20px #06b6d4}
+header p{color:#94a3b8;margin-top:7px;font-size:13px;letter-spacing:2px}
+.game{display:flex;gap:18px;align-items:flex-start;justify-content:center}
+.board-wrap{padding:8px;background:#111827;border:2px solid #334155;border-radius:12px;box-shadow:0 0 35px #0891b233}
+canvas{display:block}
+#board{width:min(65vw,300px);height:auto;background:#080e1c}
+.side{width:145px;display:flex;flex-direction:column;gap:14px}
+.panel{background:#111827;border:1px solid #334155;border-radius:12px;padding:14px}
+.panel h3{font-size:11px;letter-spacing:2px;color:#94a3b8;margin-bottom:10px}
+.value{font-size:27px;font-weight:bold;color:#67e8f9}
+#next{width:100%;height:auto;background:#080e1c;border-radius:6px}
+button{border:0;cursor:pointer;font-weight:bold;border-radius:8px;padding:12px 10px}
+.primary{background:#06b6d4;color:#06111e}
+.secondary{background:#263449;color:#fff;border:1px solid #475569}
+button:hover{filter:brightness(1.2)}
+.controls{display:grid;grid-template-columns:repeat(3,1fr);gap:9px;margin-top:20px;width:min(350px,95vw)}
+.controls button{font-size:21px;background:#17243a;color:#67e8f9;border:1px solid #334155;touch-action:manipulation}
+.controls .drop{background:#164e63}
+.hint{margin-top:18px;color:#94a3b8;text-align:center;font-size:12px;line-height:2}
+#overlay{position:fixed;inset:0;background:#020617bb;display:flex;align-items:center;justify-content:center;padding:20px;z-index:5}
+.modal{background:#111827;border:1px solid #22d3ee;border-radius:16px;padding:28px;text-align:center;max-width:320px;width:100%;box-shadow:0 0 40px #0891b333}
+.modal h2{color:#67e8f9;font-size:27px;margin-bottom:10px}
+.modal p{color:#cbd5e1;margin-bottom:20px}
+.modal button{width:100%;font-size:15px}
+.hidden{display:none!important}
+@media(max-width:420px){
+  header h1{font-size:29px}
+  .game{gap:9px}
+  .side{width:105px;gap:9px}
+  .panel{padding:9px}
+  .value{font-size:22px}
+  #board{width:calc((100vw - 155px));max-width:300px}
+}
+</style>
+</head>
+<body>
+
+<header>
+  <h1>NEON TETRIS</h1>
+  <p>ARCADE EDITION · PLAY YOUR WAY</p>
+</header>
+
+<div class="game">
+  <div class="board-wrap">
+    <canvas id="board" width="300" height="600"></canvas>
+  </div>
+  <aside class="side">
+    <div class="panel">
+      <h3>YOUR SCORE</h3>
+      <div class="value" id="score">0</div>
+    </div>
+    <div class="panel">
+      <h3>BEST SCORE</h3>
+      <div class="value" id="best">0</div>
+    </div>
+    <div class="panel">
+      <h3>LEVEL</h3>
+      <div class="value" id="level">1</div>
+    </div>
+    <div class="panel">
+      <h3>NEXT BLOCK</h3>
+      <canvas id="next" width="120" height="100"></canvas>
+    </div>
+    <button class="primary" id="restart">↻ RESTART</button>
+    <button class="secondary" id="pause">Ⅱ PAUSE</button>
+  </aside>
+</div>
+
+<div class="controls">
+  <button data-action="left" aria-label="Move left">←</button>
+  <button data-action="rotate" aria-label="Rotate">↻</button>
+  <button data-action="right" aria-label="Move right">→</button>
+  <button data-action="down" aria-label="Move down">↓</button>
+  <button data-action="drop" class="drop" aria-label="Hard drop">DROP</button>
+  <button data-action="pause" aria-label="Pause">Ⅱ</button>
+</div>
+
+<div class="hint">
+  ← → MOVE &nbsp; · &nbsp; ↑ ROTATE &nbsp; · &nbsp; ↓ SOFT DROP<br>
+  SPACE HARD DROP &nbsp; · &nbsp; P PAUSE
+</div>
+
+<div id="overlay">
+  <div class="modal">
+    <h2 id="modal-title">NEON TETRIS</h2>
+    <p id="modal-text">Ready to beat your high score?</p>
+    <button class="primary" id="start">▶ START GAME</button>
+  </div>
+</div>
+
+<script>
+const canvas = document.getElementById("board");
+const ctx = canvas.getContext("2d");
+const nextCanvas = document.getElementById("next");
+const nctx = nextCanvas.getContext("2d");
+
+const COLS = 10, ROWS = 20, SIZE = 30;
+const COLORS = [
+  null, "#22d3ee", "#3b82f6", "#f59e0b",
+  "#facc15", "#a855f7", "#22c55e", "#f43f5e"
+];
+
+const SHAPES = [
+  [[1,1,1,1]],
+  [[2,0,0],[2,2,2]],
+  [[0,0,3],[3,3,3]],
+  [[4,4],[4,4]],
+  [[0,5,5],[5,5,0]],
+  [[0,6,0],[6,6,6]],
+  [[7,7,0],[0,7,7]]
+];
+
+let board, piece, nextPiece, score, level, lines;
+let running = false, paused = false, gameOver = false;
+let lastTime = 0, dropCounter = 0;
+let best = 0;
+
+try { best = Number(localStorage.getItem("neonTetrisBest")) || 0; }
+catch(e) {}
+document.getElementById("best").textContent = best;
+
+function randomPiece() {
+  const shape = SHAPES[Math.floor(Math.random() * SHAPES.length)];
+  return {
+    matrix: shape.map(row => row.slice()),
+    x: Math.floor((COLS - shape[0].length) / 2),
+    y: 0
+  };
+}
+
+function resetGame() {
+  board = Array.from({length: ROWS}, () => Array(COLS).fill(0));
+  score = 0;
+  level = 1;
+  lines = 0;
+  dropCounter = 0;
+  piece = randomPiece();
+  nextPiece = randomPiece();
+  running = false;
+  paused = false;
+  gameOver = false;
+  updateStats();
+  draw();
+  drawNext();
+}
+
+function updateStats() {
+  document.getElementById("score").textContent = score;
+  document.getElementById("level").textContent = level;
+  document.getElementById("best").textContent = best;
+}
+
+function collide(matrix, ox, oy) {
+  for (let y = 0; y < matrix.length; y++) {
+    for (let x = 0; x < matrix[y].length; x++) {
+      if (!matrix[y][x]) continue;
+      const px = ox + x, py = oy + y;
+      if (px < 0 || px >= COLS || py >= ROWS) return true;
+      if (py >= 0 && board[py][px]) return true;
+    }
+  }
+  return false;
+}
+
+function merge() {
+  piece.matrix.forEach((row, y) => row.forEach((value, x) => {
+    if (value && piece.y + y >= 0) {
+      board[piece.y + y][piece.x + x] = value;
+    }
+  }));
+}
+
+function clearLines() {
+  let count = 0;
+  outer: for (let y = ROWS - 1; y >= 0; y--) {
+    for (let x = 0; x < COLS; x++) {
+      if (!board[y][x]) continue outer;
+    }
+    board.splice(y, 1);
+    board.unshift(Array(COLS).fill(0));
+    count++;
+    y++;
+  }
+
+  if (count) {
+    score += [0, 100, 300, 500, 800][count] * level;
+    lines += count;
+    level = Math.floor(lines / 10) + 1;
+    if (score > best) {
+      best = score;
+      try { localStorage.setItem("neonTetrisBest", best); } catch(e) {}
+    }
+    updateStats();
+  }
+}
+
+function spawnPiece() {
+  piece = nextPiece;
+  piece.x = Math.floor((COLS - piece.matrix[0].length) / 2);
+  piece.y = 0;
+  nextPiece = randomPiece();
+  drawNext();
+
+  if (collide(piece.matrix, piece.x, piece.y)) endGame();
+}
+
+function lockPiece() {
+  merge();
+  clearLines();
+  spawnPiece();
+}
+
+function move(dx, dy) {
+  if (!running || paused || gameOver) return;
+  if (!collide(piece.matrix, piece.x + dx, piece.y + dy)) {
+    piece.x += dx;
+    piece.y += dy;
+    return true;
+  }
+  return false;
+}
+
+function rotate() {
+  if (!running || paused || gameOver) return;
+  const m = piece.matrix;
+  const rotated = m[0].map((_, i) =>
+    m.map(row => row[i]).reverse()
+  );
+  for (const offset of [0, -1, 1, -2, 2]) {
+    if (!collide(rotated, piece.x + offset, piece.y)) {
+      piece.matrix = rotated;
+      piece.x += offset;
+      return;
+    }
+  }
+}
+
+function softDrop() {
+  if (!running || paused || gameOver) return;
+  if (move(0, 1)) {
+    score++;
+    updateStats();
+  } else lockPiece();
+  dropCounter = 0;
+}
+
+function hardDrop() {
+  if (!running || paused || gameOver) return;
+  let distance = 0;
+  while (!collide(piece.matrix, piece.x, piece.y + 1)) {
+    piece.y++;
+    distance++;
+  }
+  score += distance * 2;
+  updateStats();
+  lockPiece();
+  dropCounter = 0;
+}
+
+function drawCell(context, x, y, color, size) {
+  context.fillStyle = color;
+  context.fillRect(x * size + 1, y * size + 1, size - 2, size - 2);
+  context.fillStyle = "rgba(255,255,255,0.18)";
+  context.fillRect(x * size + 3, y * size + 3, size - 6, 3);
+  context.strokeStyle = "rgba(255,255,255,0.15)";
+  context.strokeRect(x * size + 1, y * size + 1, size - 2, size - 2);
+}
+
+function drawMatrix(context, matrix, ox, oy, size) {
+  matrix.forEach((row, y) => row.forEach((value, x) => {
+    if (value && oy + y >= 0) {
+      drawCell(context, ox + x, oy + y, COLORS[value], size);
+    }
+  }));
+}
+
+function draw() {
+  ctx.fillStyle = "#080e1c";
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+  ctx.strokeStyle = "#18243a";
+  ctx.lineWidth = 1;
+  for (let x = 0; x <= COLS; x++) {
+    ctx.beginPath();
+    ctx.moveTo(x * SIZE, 0);
+    ctx.lineTo(x * SIZE, canvas.height);
+    ctx.stroke();
+  }
+  for (let y = 0; y <= ROWS; y++) {
+    ctx.beginPath();
+    ctx.moveTo(0, y * SIZE);
+    ctx.lineTo(canvas.width, y * SIZE);
+    ctx.stroke();
+  }
+
+  drawMatrix(ctx, board, 0, 0, SIZE);
+
+  if (piece) {
+    let ghostY = piece.y;
+    while (!collide(piece.matrix, piece.x, ghostY + 1)) ghostY++;
+
+    ctx.globalAlpha = 0.22;
+    drawMatrix(ctx, piece.matrix, piece.x, ghostY, SIZE);
+    ctx.globalAlpha = 1;
+    drawMatrix(ctx, piece.matrix, piece.x, piece.y, SIZE);
+  }
+}
+
+function drawNext() {
+  nctx.fillStyle = "#080e1c";
+  nctx.fillRect(0, 0, nextCanvas.width, nextCanvas.height);
+  const m = nextPiece.matrix;
+  const size = 22;
+  const ox = (120 - m[0].length * size) / 2;
+  const oy = (100 - m.length * size) / 2;
+
+  m.forEach((row, y) => row.forEach((v, x) => {
+    if (v) {
+      drawCell(nctx,
+        (ox / size) + x,
+        (oy / size) + y,
+        COLORS[v], size);
+    }
+  }));
+}
+
+function endGame() {
+  running = false;
+  gameOver = true;
+  showModal("GAME OVER", "Final score: " + score, "PLAY AGAIN");
+}
+
+function showModal(title, message, buttonText) {
+  document.getElementById("modal-title").textContent = title;
+  document.getElementById("modal-text").textContent = message;
+  document.getElementById("start").textContent = buttonText;
+  document.getElementById("overlay").classList.remove("hidden");
+}
+
+function startGame() {
+  if (gameOver) resetGame();
+  running = true;
+  paused = false;
+  lastTime = performance.now();
+  document.getElementById("overlay").classList.add("hidden");
+  document.getElementById("pause").textContent = "Ⅱ PAUSE";
+}
+
+function togglePause() {
+  if (gameOver) return;
+  if (!running) {
+    startGame();
+    return;
+  }
+  paused = !paused;
+  document.getElementById("pause").textContent =
+    paused ? "▶ RESUME" : "Ⅱ PAUSE";
+  if (paused) {
+    showModal("PAUSED", "Take a break. Your game is waiting!", "RESUME");
+  } else {
+    document.getElementById("overlay").classList.add("hidden");
+    lastTime = performance.now();
+  }
+}
+
+function act(action) {
+  if (action === "pause") return togglePause();
+  if (!running || paused || gameOver) return;
+  if (action === "left") move(-1, 0);
+  if (action === "right") move(1, 0);
+  if (action === "down") softDrop();
+  if (action === "rotate") rotate();
+  if (action === "drop") hardDrop();
+  draw();
+}
+
+document.addEventListener("keydown", e => {
+  const keys = ["ArrowLeft", "ArrowRight", "ArrowUp",
+                "ArrowDown", " ", "p", "P"];
+  if (keys.includes(e.key)) e.preventDefault();
+
+  if (e.key === "Enter" && !running) return startGame();
+  if (e.key === "p" || e.key === "P") return togglePause();
+  if (!running || paused || gameOver) return;
+
+  if (e.key === "ArrowLeft") move(-1, 0);
+  if (e.key === "ArrowRight") move(1, 0);
+  if (e.key === "ArrowUp") rotate();
+  if (e.key === "ArrowDown") softDrop();
+  if (e.key === " ") hardDrop();
+  draw();
+});
+
+document.querySelectorAll("[data-action]").forEach(button => {
+  button.addEventListener("click", () => act(button.dataset.action));
+});
+
+document.getElementById("start").addEventListener("click", startGame);
+document.getElementById("restart").addEventListener("click", () => {
+  resetGame();
+  startGame();
+});
+document.getElementById("pause").addEventListener("click", togglePause);
+
+let lastFrame = 0;
+function loop(time = 0) {
+  const delta = Math.min(time - lastFrame, 100);
+  lastFrame = time;
+
+  if (running && !paused && !gameOver) {
+    dropCounter += delta;
+    const speed = Math.max(90, 800 - (level - 1) * 65);
+    if (dropCounter > speed) {
+      if (!move(0, 1)) lockPiece();
+      dropCounter = 0;
+    }
+    draw();
+  }
+  requestAnimationFrame(loop);
+}
+
+resetGame();
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>
